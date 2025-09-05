@@ -1,5 +1,5 @@
-# Version: 8.0.0
-# Changes: Added Indian proxy support for better access to the website
+# Version: 9.0.0
+# Changes: Implemented exact headers and connection parameters from successful HTTP request
 
 import time
 import os
@@ -39,42 +39,146 @@ logging.basicConfig(
 OUTPUT_DIR = "data"
 
 # Log version information
-logging.info("VMC Water Level Scraper v8.0.0")
+logging.info("VMC Water Level Scraper v9.0.0")
 logging.info("Scraping from: https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx")
 
-def get_indian_proxies():
-    """Get a list of free Indian proxies"""
-    # List of free Indian proxies (these may need to be updated periodically)
-    # Note: Free proxies are often unreliable and slow
-    indian_proxies = [
-        "103.155.217.29:80",
-        "139.59.67.6:8080",
-        "139.59.16.235:3128",
-        "164.52.24.179:80",
-        "103.250.172.46:8080",
-        "139.59.67.6:80",
-        "103.155.217.29:8080",
-        "103.250.172.46:80",
-        "164.52.24.179:8080",
-        "139.59.16.235:80"
-    ]
+def try_with_exact_headers():
+    """Try to access the website using the exact headers from the successful request"""
+    logging.info("Trying with exact headers from successful request")
     
-    # Shuffle the proxies to distribute load
-    random.shuffle(indian_proxies)
-    return indian_proxies
+    url = "https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx"
+    
+    # Exact headers from the successful request
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "max-age=0",
+        "Connection": "keep-alive",
+        "Host": "vmc.gov.in",
+        "Referer": "https://www.google.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+        "sec-ch-ua": '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"'
+    }
+    
+    try:
+        # Try with curl using the exact headers
+        cmd = [
+            "curl",
+            "-L",
+            "-s",
+            "-S",
+            "--connect-timeout", "30",
+            "--max-time", "60",
+            "-A", headers["User-Agent"],
+            "-H", f"Accept: {headers['Accept']}",
+            "-H", f"Accept-Encoding: {headers['Accept-Encoding']}",
+            "-H", f"Accept-Language: {headers['Accept-Language']}",
+            "-H", f"Cache-Control: {headers['Cache-Control']}",
+            "-H", f"Connection: {headers['Connection']}",
+            "-H", f"Host: {headers['Host']}",
+            "-H", f"Referer: {headers['Referer']}",
+            "-H", f"Sec-Fetch-Dest: {headers['Sec-Fetch-Dest']}",
+            "-H", f"Sec-Fetch-Mode: {headers['Sec-Fetch-Mode']}",
+            "-H", f"Sec-Fetch-Site: {headers['Sec-Fetch-Site']}",
+            "-H", f"Sec-Fetch-User: {headers['Sec-Fetch-User']}",
+            "-H", f"Upgrade-Insecure-Requests: {headers['Upgrade-Insecure-Requests']}",
+            "-H", f"sec-ch-ua: {headers['sec-ch-ua']}",
+            "-H", f"sec-ch-ua-mobile: {headers['sec-ch-ua-mobile']}",
+            "-H", f"sec-ch-ua-platform: {headers['sec-ch-ua-platform']}",
+            url
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        
+        if result.returncode == 0:
+            content = result.stdout
+            
+            # Check if the content looks useful
+            if "<table" in content.lower() or "water level" in content.lower():
+                logging.info("Success with exact headers")
+                return content
+            else:
+                logging.warning("Response with exact headers doesn't contain expected content")
+        else:
+            logging.warning(f"Request with exact headers failed: {result.stderr}")
+            
+    except Exception as e:
+        logging.error(f"Error with exact headers: {str(e)}")
+    
+    # Try with requests library as well
+    try:
+        session = requests.Session()
+        response = session.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            content = response.text
+            
+            # Check if the content looks useful
+            if "<table" in content.lower() or "water level" in content.lower():
+                logging.info("Success with exact headers using requests")
+                return content
+            else:
+                logging.warning("Response with exact headers using requests doesn't contain expected content")
+        else:
+            logging.warning(f"Request with exact headers using requests failed with status code: {response.status_code}")
+            
+    except Exception as e:
+        logging.error(f"Error with exact headers using requests: {str(e)}")
+    
+    logging.error("All attempts with exact headers failed")
+    return None
 
 def try_with_indian_proxy():
     """Try to access the website using an Indian proxy"""
     logging.info("Trying with Indian proxy")
     
     url = "https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx"
-    proxies = get_indian_proxies()
     
-    for i, proxy in enumerate(proxies):
+    # List of free Indian proxies (these may need to be updated periodically)
+    indian_proxies = [
+        "103.155.217.29:80",
+        "139.59.67.6:8080",
+        "139.59.16.235:3128",
+        "164.52.24.179:80",
+        "103.250.172.46:8080"
+    ]
+    
+    # Shuffle the proxies to distribute load
+    random.shuffle(indian_proxies)
+    
+    # Exact headers from the successful request
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "max-age=0",
+        "Connection": "keep-alive",
+        "Host": "vmc.gov.in",
+        "Referer": "https://www.google.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+        "sec-ch-ua": '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"'
+    }
+    
+    for i, proxy in enumerate(indian_proxies):
         try:
-            logging.info(f"Trying proxy {i+1}/{len(proxies)}: {proxy}")
+            logging.info(f"Trying proxy {i+1}/{len(indian_proxies)}: {proxy}")
             
-            # Try with curl using the proxy
+            # Try with curl using the proxy and exact headers
             cmd = [
                 "curl",
                 "-L",
@@ -83,12 +187,22 @@ def try_with_indian_proxy():
                 "--proxy", f"http://{proxy}",
                 "--connect-timeout", "30",
                 "--max-time", "60",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "-H", "Accept-Language: en-US,en;q=0.5",
-                "-H", "Accept-Encoding: gzip, deflate, br",
-                "-H", "Connection: keep-alive",
-                "-H", "Upgrade-Insecure-Requests: 1",
+                "-A", headers["User-Agent"],
+                "-H", f"Accept: {headers['Accept']}",
+                "-H", f"Accept-Encoding: {headers['Accept-Encoding']}",
+                "-H", f"Accept-Language: {headers['Accept-Language']}",
+                "-H", f"Cache-Control: {headers['Cache-Control']}",
+                "-H", f"Connection: {headers['Connection']}",
+                "-H", f"Host: {headers['Host']}",
+                "-H", f"Referer: {headers['Referer']}",
+                "-H", f"Sec-Fetch-Dest: {headers['Sec-Fetch-Dest']}",
+                "-H", f"Sec-Fetch-Mode: {headers['Sec-Fetch-Mode']}",
+                "-H", f"Sec-Fetch-Site: {headers['Sec-Fetch-Site']}",
+                "-H", f"Sec-Fetch-User: {headers['Sec-Fetch-User']}",
+                "-H", f"Upgrade-Insecure-Requests: {headers['Upgrade-Insecure-Requests']}",
+                "-H", f"sec-ch-ua: {headers['sec-ch-ua']}",
+                "-H", f"sec-ch-ua-mobile: {headers['sec-ch-ua-mobile']}",
+                "-H", f"sec-ch-ua-platform: {headers['sec-ch-ua-platform']}",
                 url
             ]
             
@@ -135,7 +249,7 @@ def try_proxy_service():
                 "-L",
                 "-s",
                 "-S",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
                 "--connect-timeout", "30",
                 "--max-time", "60",
                 proxy_url
@@ -171,211 +285,6 @@ def try_proxy_service():
     logging.error("All proxy services failed")
     return None
 
-def try_indian_web_proxy():
-    """Try using Indian web proxy services"""
-    logging.info("Trying Indian web proxy services")
-    
-    url = "https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx"
-    
-    # Try different Indian web proxy services
-    indian_proxy_services = [
-        f"https://hide.me/en/proxy/{url}",
-        f"https://www.hidester.com/proxy/{url}",
-        f"https://proxysite.com/{url}"
-    ]
-    
-    for i, proxy_url in enumerate(indian_proxy_services):
-        try:
-            logging.info(f"Trying Indian web proxy service {i+1}/{len(indian_proxy_services)}")
-            
-            cmd = [
-                "curl",
-                "-L",
-                "-s",
-                "-S",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "--connect-timeout", "30",
-                "--max-time", "60",
-                proxy_url
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-            
-            if result.returncode == 0:
-                content = result.stdout
-                
-                # Check if the content looks useful
-                if "<table" in content.lower() or "water level" in content.lower():
-                    logging.info(f"Success with Indian web proxy service {i+1}")
-                    return content
-                else:
-                    logging.warning(f"Response from Indian web proxy service {i+1} doesn't contain expected content")
-            else:
-                logging.warning(f"Indian web proxy service {i+1} failed: {result.stderr}")
-                
-        except Exception as e:
-            logging.error(f"Error with Indian web proxy service {i+1}: {str(e)}")
-            continue
-    
-    logging.error("All Indian web proxy services failed")
-    return None
-
-def setup_driver_with_proxy(proxy):
-    """Set up the Chrome WebDriver with proxy options."""
-    if not SELENIUM_AVAILABLE:
-        logging.error("Selenium is not available")
-        return None
-        
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Run in background
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-    
-    # Add proxy
-    chrome_options.add_argument(f"--proxy-server=http://{proxy}")
-    
-    # Install and set up the driver
-    try:
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        return driver
-    except Exception as e:
-        logging.error(f"Failed to setup WebDriver with proxy: {str(e)}")
-        return None
-
-def scrape_with_selenium_and_proxy():
-    """Scrape water level data using Selenium with an Indian proxy."""
-    if not SELENIUM_AVAILABLE:
-        logging.warning("Selenium not available, skipping this method")
-        return None
-        
-    url = "https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx"
-    proxies = get_indian_proxies()
-    
-    for i, proxy in enumerate(proxies):
-        try:
-            logging.info(f"Trying Selenium with proxy {i+1}/{len(proxies)}: {proxy}")
-            
-            driver = setup_driver_with_proxy(proxy)
-            if not driver:
-                continue
-            
-            logging.info(f"Accessing {url} with proxy")
-            driver.get(url)
-            
-            # Wait for the page to load
-            time.sleep(10)  # Longer wait for proxy connection
-            
-            # Switch to iframe if present
-            iframes = driver.find_elements(By.TAG_NAME, "iframe")
-            if iframes:
-                logging.info(f"Found {len(iframes)} iframes. Switching to the first one.")
-                driver.switch_to.frame(iframes[0])
-            
-            # Get the page source after JavaScript execution
-            page_source = driver.page_source
-            
-            # Check if we got a valid page
-            if "water level" in page_source.lower() or "GridView1" in page_source:
-                logging.info(f"Success with Selenium and proxy {i+1}")
-                
-                soup = BeautifulSoup(page_source, 'html.parser')
-                
-                # Extract data
-                table = soup.find('table', {'id': 'GridView1'})
-                if not table:
-                    table = soup.find('table', {'class': lambda x: x and 'table' in x.lower()})
-                
-                if table:
-                    # Extract data from table
-                    data = []
-                    rows = table.find_all('tr')
-                    
-                    # Skip header rows
-                    data_rows = []
-                    for row in rows:
-                        cols = row.find_all('td')
-                        if len(cols) >= 2:  # Only consider rows with at least 2 columns
-                            data_rows.append(row)
-                    
-                    if not data_rows:
-                        driver.quit()
-                        continue
-                    
-                    # Get current date/time for fallback
-                    current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    
-                    for j, row in enumerate(data_rows):
-                        try:
-                            cols = row.find_all('td')
-                            
-                            if len(cols) < 2:
-                                continue
-                            
-                            # Extract location
-                            location = cols[0].text.strip()
-                            
-                            # Extract water level
-                            water_level = ""
-                            if cols[1].find('table'):
-                                water_level_table = cols[1].find('table')
-                                water_level_td = water_level_table.find('td')
-                                if water_level_td:
-                                    water_level = water_level_td.text.strip()
-                            else:
-                                water_level = cols[1].text.strip()
-                            
-                            # Extract date and time
-                            date_time = ""
-                            if len(cols) > 2:
-                                if cols[2].find('table'):
-                                    date_time_table = cols[2].find('table')
-                                    date_time_td = date_time_table.find('td')
-                                    if date_time_td:
-                                        date_time = date_time_td.text.strip()
-                                else:
-                                    date_time = cols[2].text.strip()
-                                
-                                # Check if the extracted value looks like a date/time
-                                if re.match(r'^[\d.]+$', date_time):
-                                    date_time = current_datetime
-                            else:
-                                date_time = current_datetime
-                            
-                            # If we still don't have a date_time value, use current date and time
-                            if not date_time:
-                                date_time = current_datetime
-                            
-                            data.append({
-                                'Location': location,
-                                'Water Level (Feet)': water_level,
-                                'Date & Time': date_time
-                            })
-                            
-                        except Exception as e:
-                            logging.error(f"Error processing row {j+1}: {str(e)}")
-                            continue
-                    
-                    driver.quit()
-                    logging.info(f"Successfully extracted data for {len(data)} locations")
-                    return data
-            
-            driver.quit()
-            
-        except Exception as e:
-            logging.error(f"Error with Selenium and proxy {i+1}: {str(e)}")
-            try:
-                driver.quit()
-            except:
-                pass
-            continue
-    
-    logging.error("All Selenium with proxy attempts failed")
-    return None
-
 def setup_driver():
     """Set up the Chrome WebDriver with headless options."""
     if not SELENIUM_AVAILABLE:
@@ -388,7 +297,7 @@ def setup_driver():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36")
     
     # Install and set up the driver
     try:
@@ -464,9 +373,9 @@ def scrape_with_selenium():
         else:
             # Approach 2: Find any table with similar attributes
             logging.info("Original method failed, trying alternative approaches")
-            table = soup.find('table', {'class': lambda x: x and 'grid' in x.lower()})
+            table = soup.find('table', {'class': lambda x: x and 'table' in x.lower()})
             if table:
-                logging.info("Found table using class containing 'grid'")
+                logging.info("Found table using class containing 'table'")
             else:
                 # Approach 3: Find all tables and look for one with water level data
                 tables = soup.find_all('table')
@@ -779,20 +688,14 @@ def scrape_water_level_data(max_retries=2):
         try:
             logging.info(f"=== Attempt {attempt + 1}/{max_retries + 1} ===")
             
-            # Try Selenium with Indian proxy first (if available)
-            if SELENIUM_AVAILABLE:
-                logging.info("Trying Selenium with Indian proxy")
-                data = scrape_with_selenium_and_proxy()
+            # Try with exact headers first (most likely to work)
+            logging.info("Trying with exact headers from successful request")
+            content = try_with_exact_headers()
+            if content:
+                # Try to extract data from HTML
+                data = extract_data_from_html(content)
                 if data:
-                    logging.info("Successfully extracted data using Selenium with Indian proxy")
-                    return data
-            
-            # Try Selenium without proxy (if available)
-            if SELENIUM_AVAILABLE:
-                logging.info("Trying Selenium without proxy")
-                data = scrape_with_selenium()
-                if data:
-                    logging.info("Successfully extracted data using Selenium")
+                    logging.info("Successfully extracted data using exact headers")
                     return data
             
             # Try with Indian proxy
@@ -805,18 +708,16 @@ def scrape_water_level_data(max_retries=2):
                     logging.info("Successfully extracted data using Indian proxy")
                     return data
             
-            # Try Indian web proxy
-            logging.info("Trying Indian web proxy")
-            content = try_indian_web_proxy()
-            if content:
-                # Try to extract data from HTML
-                data = extract_data_from_html(content)
+            # Try Selenium (if available)
+            if SELENIUM_AVAILABLE:
+                logging.info("Trying Selenium")
+                data = scrape_with_selenium()
                 if data:
-                    logging.info("Successfully extracted data using Indian web proxy")
+                    logging.info("Successfully extracted data using Selenium")
                     return data
             
-            # Try regular proxy service
-            logging.info("Trying regular proxy service")
+            # Try proxy service
+            logging.info("Trying proxy service")
             content = try_proxy_service()
             if content:
                 # Try to extract data from HTML
