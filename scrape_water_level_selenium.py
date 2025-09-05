@@ -1,22 +1,16 @@
 # https://chat.z.ai/c/023138cc-06e9-4ad7-9ebb-3137523d1227
-# Version: 1.6.0
-# Changes: Improved timeout handling, added retry mechanism, optimized page loading
-import time
+# Version: 2.0.0
+# Changes: Updated URL to https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx, added version logging
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+from datetime import datetime
 import os
 import logging
 import sys
-import pandas as pd
-from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
-import re
+import time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Set up logging
 logging.basicConfig(
@@ -25,34 +19,30 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-# Define your output directory (relative path for GitHub Actions)
+# Define your output directory
 OUTPUT_DIR = "data"
 
-def setup_driver():
-    """Set up the Chrome WebDriver with headless options."""
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Run in background
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+def create_session_with_retries():
+    """Create a requests session with retry capabilities"""
+    session = requests.Session()
     
-    # Set page load strategy to 'eager' to wait only for DOM to be loaded, not all resources
-    chrome_options.page_load_strategy = 'eager'
+    # Define retry strategy
+    retry_strategy = Retry(
+        total=5,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
     
-    # Install and set up the driver
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # Mount HTTP and HTTPS adapters with retry strategy
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
     
-    # Set page load timeout
-    driver.set_page_load_timeout(60)  # 60 seconds timeout
-    
-    return driver
+    return session
 
-def scrape_water_level_data(max_retries=2):
+def scrape_water_level_data(max_retries=3):
     """
-    Scrape water level data from VMC website using Selenium.
+    Scrape water level data from VMC website using requests.
     
     Args:
         max_retries (int): Maximum number of retry attempts
@@ -60,65 +50,60 @@ def scrape_water_level_data(max_retries=2):
     Returns:
         list: A list of dictionaries containing water level data
     """
-    url = "https://vmc.gov.in/WaterLevelSensor.aspx"
+    url = "https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx"
+    
+    # Headers to mimic a browser request
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+    }
     
     for attempt in range(max_retries + 1):
-        driver = None
         try:
-            logging.info(f"Setting up WebDriver (Attempt {attempt + 1}/{max_retries + 1})")
-            driver = setup_driver()
+            logging.info(f"Sending request to {url} (Attempt {attempt + 1}/{max_retries + 1})")
+            session = create_session_with_retries()
             
-            logging.info(f"Accessing {url}")
-            # Use a try-except block to handle timeout
-            try:
-                driver.get(url)
-            except TimeoutException:
-                logging.warning("Page load timed out, but continuing with current page state")
+            # Try with increasing timeouts
+            for timeout in [60, 120, 180]:
+                try:
+                    response = session.get(url, headers=headers, timeout=timeout)
+                    response.raise_for_status()
+                    break
+                except requests.exceptions.Timeout:
+                    logging.warning(f"Request timed out with {timeout} seconds, trying with longer timeout...")
+                    continue
+            else:
+                logging.error("All attempts to fetch the page timed out")
+                continue
             
-            # Wait for the page to load and for the table to be visible
-            logging.info("Waiting for page to load...")
-            time.sleep(10)  # Increased initial wait for page load
-            
-            # Switch to iframe if present
-            iframes = driver.find_elements(By.TAG_NAME, "iframe")
-            if iframes:
-                logging.info(f"Found {len(iframes)} iframes. Switching to the first one.")
-                driver.switch_to.frame(iframes[0])
-            
-            # Try to wait for the table to be present
-            try:
-                WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.ID, "GridView1"))
-                )
-                logging.info("Found table with id 'GridView1'")
-            except Exception as e:
-                logging.warning(f"Could not find table with id 'GridView1': {str(e)}")
-            
-            # Get the page source after JavaScript execution
-            page_source = driver.page_source
-            soup = BeautifulSoup(page_source, 'html.parser')
+            logging.info("Parsing HTML content")
+            soup = BeautifulSoup(response.text, 'html.parser')
             
             # Save the HTML content for debugging (only in local environment)
             if os.environ.get('GITHUB_ACTIONS') != 'true':
                 debug_file = os.path.join(OUTPUT_DIR, "debug_page.html")
                 os.makedirs(OUTPUT_DIR, exist_ok=True)
                 with open(debug_file, 'w', encoding='utf-8') as f:
-                    f.write(page_source)
+                    f.write(response.text)
                 logging.info(f"Saved page content to {debug_file} for debugging")
             
             # Try to find the table with different approaches
             table = None
             
-            # Approach 1: Original method
+            # Approach 1: Try to find table with id 'GridView1' (same as before)
             table = soup.find('table', {'id': 'GridView1'})
             if table:
-                logging.info("Found table using original method (id='GridView1')")
+                logging.info("Found table using id 'GridView1'")
             else:
                 # Approach 2: Find any table with similar attributes
                 logging.info("Original method failed, trying alternative approaches")
-                table = soup.find('table', {'class': lambda x: x and 'grid' in x.lower()})
+                table = soup.find('table', {'class': lambda x: x and 'table' in x.lower()})
                 if table:
-                    logging.info("Found table using class containing 'grid'")
+                    logging.info("Found table using class containing 'table'")
                 else:
                     # Approach 3: Find all tables and look for one with water level data
                     tables = soup.find_all('table')
@@ -142,9 +127,7 @@ def scrape_water_level_data(max_retries=2):
             
             if not table:
                 logging.error("Could not find any suitable table with water level data")
-                if driver:
-                    driver.quit()
-                continue  # Try again
+                continue
             
             # Debug: Log table structure
             logging.info("Analyzing table structure...")
@@ -170,9 +153,7 @@ def scrape_water_level_data(max_retries=2):
             
             if not data_rows:
                 logging.warning("No data rows found in the table")
-                if driver:
-                    driver.quit()
-                continue  # Try again
+                continue
             
             logging.info(f"Found {len(data_rows)} data rows")
             
@@ -242,22 +223,16 @@ def scrape_water_level_data(max_retries=2):
                     continue
             
             logging.info(f"Successfully extracted data for {len(data)} locations")
-            if driver:
-                driver.quit()
             return data
         
-        except WebDriverException as e:
-            logging.error(f"WebDriver error: {str(e)}")
-            if driver:
-                driver.quit()
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request error: {str(e)}")
             if attempt < max_retries:
                 logging.info("Retrying...")
                 time.sleep(5)  # Wait before retrying
             continue
         except Exception as e:
             logging.error(f"Unexpected error: {str(e)}")
-            if driver:
-                driver.quit()
             if attempt < max_retries:
                 logging.info("Retrying...")
                 time.sleep(5)  # Wait before retrying
@@ -303,7 +278,9 @@ def save_to_csv(data, filename=None):
 
 def main():
     """Main function to scrape and save water level data."""
-    logging.info("Starting water level data scraping process")
+    # Log version information
+    logging.info("VMC Water Level Scraper v2.0.0")
+    logging.info("Scraping from: https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx")
     
     data = scrape_water_level_data()
     if not data:
