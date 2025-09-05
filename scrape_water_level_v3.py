@@ -1,0 +1,49 @@
+name: Scrape Water Level Data
+
+on:
+  schedule:
+    # Run daily at 8 AM UTC (1:30 PM IST)
+    - cron: '0 8 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4 pandas
+        
+    - name: Run scraping script
+      id: scrape
+      run: python scrape_water_level_v3.py
+      continue-on-error: true
+      
+    - name: Check if scraping succeeded
+      if: steps.scrape.outcome != 'success'
+      run: |
+        echo "Scraping failed. Check logs for details."
+        echo "This might be due to the website being temporarily unavailable or blocking our requests."
+        exit 1
+      
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add data/
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Add daily water level data $(date '+%Y-%m-%d')"
+          git push
+        fi
