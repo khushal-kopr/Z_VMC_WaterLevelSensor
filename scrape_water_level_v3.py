@@ -1,5 +1,5 @@
-# Version: 9.0.0
-# Changes: Implemented exact headers and connection parameters from successful HTTP request
+# Version: 10.0.0
+# Changes: Focused on the specific successful request parameters
 
 import time
 import os
@@ -39,16 +39,16 @@ logging.basicConfig(
 OUTPUT_DIR = "data"
 
 # Log version information
-logging.info("VMC Water Level Scraper v9.0.0")
+logging.info("VMC Water Level Scraper v10.0.0")
 logging.info("Scraping from: https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx")
 
-def try_with_exact_headers():
-    """Try to access the website using the exact headers from the successful request"""
-    logging.info("Trying with exact headers from successful request")
+def try_with_targeted_request():
+    """Try to access the website using the specific successful request parameters"""
+    logging.info("Trying with targeted request parameters")
     
     url = "https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx"
     
-    # Exact headers from the successful request
+    # Headers based on the successful request
     headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "Accept-Encoding": "gzip, deflate, br, zstd",
@@ -68,33 +68,45 @@ def try_with_exact_headers():
         "sec-ch-ua-platform": '"Windows"'
     }
     
+    # Try with requests library first
     try:
-        # Try with curl using the exact headers
-        cmd = [
-            "curl",
-            "-L",
-            "-s",
-            "-S",
-            "--connect-timeout", "30",
-            "--max-time", "60",
-            "-A", headers["User-Agent"],
-            "-H", f"Accept: {headers['Accept']}",
-            "-H", f"Accept-Encoding: {headers['Accept-Encoding']}",
-            "-H", f"Accept-Language: {headers['Accept-Language']}",
-            "-H", f"Cache-Control: {headers['Cache-Control']}",
-            "-H", f"Connection: {headers['Connection']}",
-            "-H", f"Host: {headers['Host']}",
-            "-H", f"Referer: {headers['Referer']}",
-            "-H", f"Sec-Fetch-Dest: {headers['Sec-Fetch-Dest']}",
-            "-H", f"Sec-Fetch-Mode: {headers['Sec-Fetch-Mode']}",
-            "-H", f"Sec-Fetch-Site: {headers['Sec-Fetch-Site']}",
-            "-H", f"Sec-Fetch-User: {headers['Sec-Fetch-User']}",
-            "-H", f"Upgrade-Insecure-Requests: {headers['Upgrade-Insecure-Requests']}",
-            "-H", f"sec-ch-ua: {headers['sec-ch-ua']}",
-            "-H", f"sec-ch-ua-mobile: {headers['sec-ch-ua-mobile']}",
-            "-H", f"sec-ch-ua-platform: {headers['sec-ch-ua-platform']}",
-            url
-        ]
+        logging.info("Trying with requests library")
+        session = requests.Session()
+        
+        # Set a custom referrer policy
+        session.headers.update(headers)
+        
+        # Make the request
+        response = session.get(url, timeout=30)
+        
+        if response.status_code == 200:
+            content = response.text
+            
+            # Check if the content looks useful
+            if "<table" in content.lower() or "water level" in content.lower():
+                logging.info("Success with requests library")
+                return content
+            else:
+                logging.warning("Response doesn't contain expected content")
+        else:
+            logging.warning(f"Request failed with status code: {response.status_code}")
+            
+    except Exception as e:
+        logging.error(f"Error with requests library: {str(e)}")
+    
+    # Try with curl
+    try:
+        logging.info("Trying with curl")
+        
+        # Build curl command with all headers
+        cmd = ["curl", "-L", "-s", "-S", "--connect-timeout", "30", "--max-time", "60"]
+        
+        # Add all headers
+        for key, value in headers.items():
+            cmd.extend(["-H", f"{key}: {value}"])
+        
+        # Add URL
+        cmd.append(url)
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         
@@ -103,37 +115,103 @@ def try_with_exact_headers():
             
             # Check if the content looks useful
             if "<table" in content.lower() or "water level" in content.lower():
-                logging.info("Success with exact headers")
+                logging.info("Success with curl")
                 return content
             else:
-                logging.warning("Response with exact headers doesn't contain expected content")
+                logging.warning("Response doesn't contain expected content")
         else:
-            logging.warning(f"Request with exact headers failed: {result.stderr}")
+            logging.warning(f"Curl failed: {result.stderr}")
             
     except Exception as e:
-        logging.error(f"Error with exact headers: {str(e)}")
+        logging.error(f"Error with curl: {str(e)}")
     
-    # Try with requests library as well
+    logging.error("All attempts with targeted request failed")
+    return None
+
+def try_with_ip_address():
+    """Try to access the website using the specific IP address"""
+    logging.info("Trying with specific IP address")
+    
+    # Use the IP address from the successful request
+    ip_address = "136.233.132.36"
+    url = f"https://{ip_address}/waterlevelsensor/WaterLevel.aspx"
+    
+    # Headers based on the successful request
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "max-age=0",
+        "Connection": "keep-alive",
+        "Host": "vmc.gov.in",  # Important: keep the original host header
+        "Referer": "https://www.google.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+        "sec-ch-ua": '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"'
+    }
+    
+    # Try with requests library
     try:
+        logging.info("Trying with requests library and IP address")
         session = requests.Session()
-        response = session.get(url, headers=headers, timeout=30)
+        session.headers.update(headers)
+        
+        # Make the request to the IP address
+        response = session.get(url, timeout=30)
         
         if response.status_code == 200:
             content = response.text
             
             # Check if the content looks useful
             if "<table" in content.lower() or "water level" in content.lower():
-                logging.info("Success with exact headers using requests")
+                logging.info("Success with requests library and IP address")
                 return content
             else:
-                logging.warning("Response with exact headers using requests doesn't contain expected content")
+                logging.warning("Response doesn't contain expected content")
         else:
-            logging.warning(f"Request with exact headers using requests failed with status code: {response.status_code}")
+            logging.warning(f"Request failed with status code: {response.status_code}")
             
     except Exception as e:
-        logging.error(f"Error with exact headers using requests: {str(e)}")
+        logging.error(f"Error with requests library and IP address: {str(e)}")
     
-    logging.error("All attempts with exact headers failed")
+    # Try with curl
+    try:
+        logging.info("Trying with curl and IP address")
+        
+        # Build curl command with all headers
+        cmd = ["curl", "-L", "-s", "-S", "--connect-timeout", "30", "--max-time", "60", "--resolve", f"vmc.gov.in:443:{ip_address}"]
+        
+        # Add all headers
+        for key, value in headers.items():
+            cmd.extend(["-H", f"{key}: {value}"])
+        
+        # Add URL
+        cmd.append("https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        
+        if result.returncode == 0:
+            content = result.stdout
+            
+            # Check if the content looks useful
+            if "<table" in content.lower() or "water level" in content.lower():
+                logging.info("Success with curl and IP address")
+                return content
+            else:
+                logging.warning("Response doesn't contain expected content")
+        else:
+            logging.warning(f"Curl failed: {result.stderr}")
+            
+    except Exception as e:
+        logging.error(f"Error with curl and IP address: {str(e)}")
+    
+    logging.error("All attempts with IP address failed")
     return None
 
 def try_with_indian_proxy():
@@ -154,7 +232,7 @@ def try_with_indian_proxy():
     # Shuffle the proxies to distribute load
     random.shuffle(indian_proxies)
     
-    # Exact headers from the successful request
+    # Headers based on the successful request
     headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "Accept-Encoding": "gzip, deflate, br, zstd",
@@ -186,25 +264,15 @@ def try_with_indian_proxy():
                 "-S",
                 "--proxy", f"http://{proxy}",
                 "--connect-timeout", "30",
-                "--max-time", "60",
-                "-A", headers["User-Agent"],
-                "-H", f"Accept: {headers['Accept']}",
-                "-H", f"Accept-Encoding: {headers['Accept-Encoding']}",
-                "-H", f"Accept-Language: {headers['Accept-Language']}",
-                "-H", f"Cache-Control: {headers['Cache-Control']}",
-                "-H", f"Connection: {headers['Connection']}",
-                "-H", f"Host: {headers['Host']}",
-                "-H", f"Referer: {headers['Referer']}",
-                "-H", f"Sec-Fetch-Dest: {headers['Sec-Fetch-Dest']}",
-                "-H", f"Sec-Fetch-Mode: {headers['Sec-Fetch-Mode']}",
-                "-H", f"Sec-Fetch-Site: {headers['Sec-Fetch-Site']}",
-                "-H", f"Sec-Fetch-User: {headers['Sec-Fetch-User']}",
-                "-H", f"Upgrade-Insecure-Requests: {headers['Upgrade-Insecure-Requests']}",
-                "-H", f"sec-ch-ua: {headers['sec-ch-ua']}",
-                "-H", f"sec-ch-ua-mobile: {headers['sec-ch-ua-mobile']}",
-                "-H", f"sec-ch-ua-platform: {headers['sec-ch-ua-platform']}",
-                url
+                "--max-time", "60"
             ]
+            
+            # Add all headers
+            for key, value in headers.items():
+                cmd.extend(["-H", f"{key}: {value}"])
+            
+            # Add URL
+            cmd.append(url)
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
             
@@ -225,64 +293,6 @@ def try_with_indian_proxy():
             continue
     
     logging.error("All Indian proxies failed")
-    return None
-
-def try_proxy_service():
-    """Try using a proxy service to fetch the data"""
-    logging.info("Trying proxy service")
-    
-    url = "https://vmc.gov.in/waterlevelsensor/WaterLevel.aspx"
-    
-    # Try different proxy services
-    proxy_services = [
-        f"https://api.allorigins.win/get?url={url}",
-        f"https://cors-anywhere.herokuapp.com/{url}",
-        f"https://api.codetabs.com/v1/proxy?quest={url}"
-    ]
-    
-    for i, proxy_url in enumerate(proxy_services):
-        try:
-            logging.info(f"Trying proxy service {i+1}/{len(proxy_services)}")
-            
-            cmd = [
-                "curl",
-                "-L",
-                "-s",
-                "-S",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
-                "--connect-timeout", "30",
-                "--max-time", "60",
-                proxy_url
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-            
-            if result.returncode == 0:
-                content = result.stdout
-                
-                # Check if it's from allorigins (which wraps the response)
-                if "allorigins" in proxy_url:
-                    try:
-                        data = json.loads(content)
-                        if 'contents' in data:
-                            content = data['contents']
-                    except:
-                        pass
-                
-                # Check if the content looks useful
-                if "<table" in content.lower() or "water level" in content.lower():
-                    logging.info(f"Success with proxy service {i+1}")
-                    return content
-                else:
-                    logging.warning(f"Response from proxy service {i+1} doesn't contain expected content")
-            else:
-                logging.warning(f"Proxy service {i+1} failed: {result.stderr}")
-                
-        except Exception as e:
-            logging.error(f"Error with proxy service {i+1}: {str(e)}")
-            continue
-    
-    logging.error("All proxy services failed")
     return None
 
 def setup_driver():
@@ -688,14 +698,24 @@ def scrape_water_level_data(max_retries=2):
         try:
             logging.info(f"=== Attempt {attempt + 1}/{max_retries + 1} ===")
             
-            # Try with exact headers first (most likely to work)
-            logging.info("Trying with exact headers from successful request")
-            content = try_with_exact_headers()
+            # Try with targeted request first (most likely to work)
+            logging.info("Trying with targeted request parameters")
+            content = try_with_targeted_request()
             if content:
                 # Try to extract data from HTML
                 data = extract_data_from_html(content)
                 if data:
-                    logging.info("Successfully extracted data using exact headers")
+                    logging.info("Successfully extracted data using targeted request")
+                    return data
+            
+            # Try with IP address
+            logging.info("Trying with specific IP address")
+            content = try_with_ip_address()
+            if content:
+                # Try to extract data from HTML
+                data = extract_data_from_html(content)
+                if data:
+                    logging.info("Successfully extracted data using IP address")
                     return data
             
             # Try with Indian proxy
@@ -714,16 +734,6 @@ def scrape_water_level_data(max_retries=2):
                 data = scrape_with_selenium()
                 if data:
                     logging.info("Successfully extracted data using Selenium")
-                    return data
-            
-            # Try proxy service
-            logging.info("Trying proxy service")
-            content = try_proxy_service()
-            if content:
-                # Try to extract data from HTML
-                data = extract_data_from_html(content)
-                if data:
-                    logging.info("Successfully extracted data using proxy service")
                     return data
             
             logging.warning("All methods failed in this attempt")
