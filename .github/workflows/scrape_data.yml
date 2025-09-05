@@ -26,7 +26,7 @@ jobs:
         
     - name: Run scraping script
       id: scrape
-      run: python scrape_water_level_selenium.py
+      run: python scrape_water_level_v3.py
       continue-on-error: true
       
     - name: Check if scraping succeeded
